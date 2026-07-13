@@ -1,0 +1,8 @@
+node_modules
+.next
+out
+.env
+.env.local
+push-subscriptions.json
+*.log
+.DS_Store
