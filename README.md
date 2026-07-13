@@ -21,14 +21,18 @@ npm run generate-vapid
 
 Copy the output over `NEXT_PUBLIC_VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` in `.env.local`, then restart `npm run dev` and clear any existing push subscription in the browser.
 
+## What works out of the box
+
+All five pages, realtime vitals, the map with geofence, the alerts feed, sending messages, delivery tracking, and **foreground** notifications (while any tab is open) work immediately after deployment. Nothing else needs to be configured for day-to-day use.
+
 ## Push notifications
 
-Two triggers are wired up:
+Two independent triggers are wired up:
 
-1. **Foreground realtime bridge** — while any tab is open, `AlertPushBridge` listens to Supabase realtime `INSERT`s on `alerts` and shows a `showNotification` via the service worker.
-2. **Web Push server (works when the app is closed)** — subscriptions land at `POST /api/subscribe` and are stored in the Supabase `push_subscriptions` table. Send them by calling `POST /api/notify`.
+1. **Foreground realtime bridge (always on)** — while any tab is open, `AlertPushBridge` listens to Supabase realtime `INSERT`s on `alerts` and calls `showNotification` via the service worker. No extra setup required.
+2. **Background Web Push (optional)** — needed only if you want alerts to notify the caregiver when the app is completely closed. Subscriptions land at `POST /api/subscribe` and are stored in the Supabase `push_subscriptions` table. To fire real pushes, wire a Supabase Database Webhook to hit `POST /api/notify`.
 
-Create the table once in Supabase → SQL Editor:
+### Required for background push: create the subscription table (one-time)
 
 ```sql
 create table if not exists push_subscriptions (
@@ -42,7 +46,9 @@ create policy "anon read"   on push_subscriptions for select to anon using (true
 create policy "anon delete" on push_subscriptions for delete to anon using (true);
 ```
 
-To trigger real pushes when a new alert row is inserted, wire a **Supabase Database Webhook**:
+### Required for background push: wire the Supabase webhook
+
+Supabase Studio → Database → Webhooks → New:
 
 - Table: `alerts`, event: `Insert`
 - URL: `https://<your-deployment>/api/notify`
@@ -52,7 +58,7 @@ To trigger real pushes when a new alert row is inserted, wire a **Supabase Datab
 The webhook posts a `{ type, record }` payload that `/api/notify` maps into a push. You can also POST manually to test:
 
 ```bash
-curl -X POST http://localhost:3000/api/notify \
+curl -X POST https://<your-deployment>/api/notify \
   -H 'content-type: application/json' \
   -d '{"title":"Test","body":"Push works","url":"/alerts"}'
 ```
@@ -64,7 +70,7 @@ insert into alerts (device_id, alert_type, message)
 values ('wearable_01', 'fall', 'Test fall alert');
 ```
 
-If a browser tab is open, the foreground bridge fires immediately. For background delivery, the Supabase webhook must be configured.
+Without the webhook: foreground bridge still fires while a tab is open. With the webhook: pushes also arrive when the site is closed.
 
 ## Pages
 
