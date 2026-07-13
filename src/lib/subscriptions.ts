@@ -1,35 +1,47 @@
-import { promises as fs } from "node:fs";
-import path from "node:path";
 import type { PushSubscription as WebPushSubscription } from "web-push";
 
-const FILE = path.join(process.cwd(), "push-subscriptions.json");
+const URL_BASE = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const TABLE = "push_subscriptions";
 
-async function readAll(): Promise<WebPushSubscription[]> {
-  try {
-    const raw = await fs.readFile(FILE, "utf-8");
-    return JSON.parse(raw);
-  } catch {
-    return [];
-  }
+function headers(extra: Record<string, string> = {}) {
+  return {
+    apikey: KEY,
+    Authorization: `Bearer ${KEY}`,
+    "content-type": "application/json",
+    ...extra
+  };
 }
 
-async function writeAll(list: WebPushSubscription[]) {
-  await fs.writeFile(FILE, JSON.stringify(list, null, 2));
-}
-
-export async function listSubscriptions() {
-  return readAll();
+export async function listSubscriptions(): Promise<WebPushSubscription[]> {
+  const r = await fetch(`${URL_BASE}/rest/v1/${TABLE}?select=endpoint,keys`, {
+    headers: headers(),
+    cache: "no-store"
+  });
+  if (!r.ok) throw new Error(`listSubscriptions failed: ${r.status} ${await r.text()}`);
+  const rows = (await r.json()) as { endpoint: string; keys: { p256dh: string; auth: string } }[];
+  return rows.map((row) => ({ endpoint: row.endpoint, keys: row.keys }));
 }
 
 export async function addSubscription(sub: WebPushSubscription) {
-  const all = await readAll();
-  if (!all.find((s) => s.endpoint === sub.endpoint)) {
-    all.push(sub);
-    await writeAll(all);
+  const r = await fetch(`${URL_BASE}/rest/v1/${TABLE}`, {
+    method: "POST",
+    headers: headers({ Prefer: "resolution=merge-duplicates,return=minimal" }),
+    body: JSON.stringify({ endpoint: sub.endpoint, keys: sub.keys }),
+    cache: "no-store"
+  });
+  if (!r.ok && r.status !== 409) {
+    throw new Error(`addSubscription failed: ${r.status} ${await r.text()}`);
   }
 }
 
 export async function removeSubscription(endpoint: string) {
-  const all = await readAll();
-  await writeAll(all.filter((s) => s.endpoint !== endpoint));
+  const qs = `endpoint=eq.${encodeURIComponent(endpoint)}`;
+  const r = await fetch(`${URL_BASE}/rest/v1/${TABLE}?${qs}`, {
+    method: "DELETE",
+    headers: headers()
+  });
+  if (!r.ok) {
+    throw new Error(`removeSubscription failed: ${r.status} ${await r.text()}`);
+  }
 }

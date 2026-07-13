@@ -26,7 +26,21 @@ Copy the output over `NEXT_PUBLIC_VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` in `
 Two triggers are wired up:
 
 1. **Foreground realtime bridge** — while any tab is open, `AlertPushBridge` listens to Supabase realtime `INSERT`s on `alerts` and shows a `showNotification` via the service worker.
-2. **Web Push server (works when the app is closed)** — subscriptions land at `POST /api/subscribe` and are stored in `push-subscriptions.json`. Send them by calling `POST /api/notify`.
+2. **Web Push server (works when the app is closed)** — subscriptions land at `POST /api/subscribe` and are stored in the Supabase `push_subscriptions` table. Send them by calling `POST /api/notify`.
+
+Create the table once in Supabase → SQL Editor:
+
+```sql
+create table if not exists push_subscriptions (
+  endpoint text primary key,
+  keys jsonb not null,
+  created_at timestamptz default now()
+);
+alter table push_subscriptions enable row level security;
+create policy "anon insert" on push_subscriptions for insert to anon with check (true);
+create policy "anon read"   on push_subscriptions for select to anon using (true);
+create policy "anon delete" on push_subscriptions for delete to anon using (true);
+```
 
 To trigger real pushes when a new alert row is inserted, wire a **Supabase Database Webhook**:
 
